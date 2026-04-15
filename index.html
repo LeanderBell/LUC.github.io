@@ -1,11 +1,320 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>L.B. Detailing</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Conway's Game of Life</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --text: #e2e8f0;
+      --accent: #22c55e;
+      --muted: #94a3b8;
+      --danger: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+
+    body {
+      min-height: 100vh;
+      background: radial-gradient(circle at top, #1d4ed8 0%, var(--bg) 60%);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      padding: 1rem;
+    }
+
+    .game-shell {
+      width: min(980px, 100%);
+      background: color-mix(in oklab, var(--panel) 85%, black 15%);
+      border: 1px solid color-mix(in oklab, var(--muted) 25%, transparent);
+      border-radius: 14px;
+      box-shadow: 0 18px 55px rgba(0, 0, 0, 0.45);
+      padding: 1rem;
+      display: grid;
+      gap: 1rem;
+    }
+
+    h1 {
+      font-size: clamp(1.4rem, 2vw, 2rem);
+    }
+
+    p {
+      color: var(--muted);
+    }
+
+    .layout {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: 3fr minmax(220px, 1fr);
+    }
+
+    canvas {
+      width: 100%;
+      border: 1px solid color-mix(in oklab, var(--muted) 25%, transparent);
+      border-radius: 12px;
+      background: #020617;
+      cursor: crosshair;
+    }
+
+    .controls {
+      display: grid;
+      gap: 0.75rem;
+      align-content: start;
+      background: color-mix(in oklab, var(--panel) 80%, black 20%);
+      border: 1px solid color-mix(in oklab, var(--muted) 20%, transparent);
+      border-radius: 12px;
+      padding: 0.85rem;
+    }
+
+    button {
+      padding: 0.6rem 0.8rem;
+      border-radius: 10px;
+      border: none;
+      background: #334155;
+      color: var(--text);
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 150ms ease, opacity 150ms ease;
+    }
+
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(1px); }
+
+    .primary { background: var(--accent); color: #052e16; }
+    .danger { background: var(--danger); color: #fee2e2; }
+
+    .inline {
+      display: grid;
+      gap: 0.4rem;
+      margin-top: 0.2rem;
+    }
+
+    label {
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    input[type="range"] { width: 100%; }
+
+    .stats {
+      display: grid;
+      gap: 0.35rem;
+      font-size: 0.95rem;
+      color: var(--muted);
+      margin-top: 0.25rem;
+    }
+
+    .rules {
+      margin-top: 0.25rem;
+      line-height: 1.45;
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 850px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+  </style>
 </head>
 <body>
-  <h1>Welcome to L.B. Detailing</h1>
-  <p>Book your mobile car detailing service here!</p>
+  <main class="game-shell">
+    <header>
+      <h1>Conway's Game of Life</h1>
+      <p>Click cells to toggle life. Press Play to watch the simulation evolve.</p>
+    </header>
+
+    <section class="layout">
+      <canvas id="board" width="720" height="480" aria-label="Game board"></canvas>
+
+      <aside class="controls">
+        <button id="playPause" class="primary">Play</button>
+        <button id="step">Step</button>
+        <button id="randomize">Randomize</button>
+        <button id="clear" class="danger">Clear</button>
+
+        <div class="inline">
+          <label for="speed">Speed: <span id="speedValue">10</span> generations/sec</label>
+          <input id="speed" type="range" min="1" max="30" value="10" />
+        </div>
+
+        <div class="inline">
+          <label for="density">Random fill: <span id="densityValue">30</span>%</label>
+          <input id="density" type="range" min="5" max="80" value="30" />
+        </div>
+
+        <div class="stats">
+          <div>Generation: <strong id="generation">0</strong></div>
+          <div>Living cells: <strong id="aliveCount">0</strong></div>
+        </div>
+
+        <p class="rules"><strong>Rules:</strong> A live cell survives with 2-3 neighbors, dies otherwise. A dead cell becomes alive with exactly 3 neighbors.</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('board');
+    const ctx = canvas.getContext('2d');
+
+    const playPauseBtn = document.getElementById('playPause');
+    const stepBtn = document.getElementById('step');
+    const randomizeBtn = document.getElementById('randomize');
+    const clearBtn = document.getElementById('clear');
+    const speedInput = document.getElementById('speed');
+    const densityInput = document.getElementById('density');
+
+    const speedValue = document.getElementById('speedValue');
+    const densityValue = document.getElementById('densityValue');
+    const generationText = document.getElementById('generation');
+    const aliveCountText = document.getElementById('aliveCount');
+
+    const cellSize = 12;
+    const cols = Math.floor(canvas.width / cellSize);
+    const rows = Math.floor(canvas.height / cellSize);
+
+    let grid = createGrid();
+    let running = false;
+    let generation = 0;
+    let lastTick = 0;
+
+    function createGrid() {
+      return Array.from({ length: rows }, () => Array(cols).fill(0));
+    }
+
+    function draw() {
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+      ctx.lineWidth = 1;
+
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          if (grid[y][x]) {
+            ctx.fillStyle = '#22c55e';
+            ctx.fillRect(x * cellSize + 1, y * cellSize + 1, cellSize - 2, cellSize - 2);
+          }
+          ctx.strokeRect(x * cellSize, y * cellSize, cellSize, cellSize);
+        }
+      }
+
+      const alive = countAliveCells();
+      generationText.textContent = generation;
+      aliveCountText.textContent = alive;
+    }
+
+    function countAliveCells() {
+      let total = 0;
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          total += grid[y][x];
+        }
+      }
+      return total;
+    }
+
+    function getNeighbors(y, x) {
+      let count = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const ny = (y + dy + rows) % rows;
+          const nx = (x + dx + cols) % cols;
+          count += grid[ny][nx];
+        }
+      }
+      return count;
+    }
+
+    function step() {
+      const next = createGrid();
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const alive = grid[y][x] === 1;
+          const neighbors = getNeighbors(y, x);
+
+          if (alive && (neighbors === 2 || neighbors === 3)) {
+            next[y][x] = 1;
+          } else if (!alive && neighbors === 3) {
+            next[y][x] = 1;
+          }
+        }
+      }
+      grid = next;
+      generation += 1;
+      draw();
+    }
+
+    function randomize() {
+      const chance = Number(densityInput.value) / 100;
+      grid = Array.from({ length: rows }, () =>
+        Array.from({ length: cols }, () => (Math.random() < chance ? 1 : 0))
+      );
+      generation = 0;
+      draw();
+    }
+
+    function clearGrid() {
+      grid = createGrid();
+      generation = 0;
+      draw();
+    }
+
+    function toggleRunning() {
+      running = !running;
+      playPauseBtn.textContent = running ? 'Pause' : 'Play';
+      if (running) {
+        lastTick = performance.now();
+        requestAnimationFrame(loop);
+      }
+    }
+
+    function loop(timestamp) {
+      if (!running) return;
+      const speed = Number(speedInput.value);
+      const interval = 1000 / speed;
+
+      if (timestamp - lastTick >= interval) {
+        step();
+        lastTick = timestamp;
+      }
+      requestAnimationFrame(loop);
+    }
+
+    canvas.addEventListener('click', (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.floor((event.clientX - rect.left) / (rect.width / cols));
+      const y = Math.floor((event.clientY - rect.top) / (rect.height / rows));
+
+      if (x >= 0 && x < cols && y >= 0 && y < rows) {
+        grid[y][x] = grid[y][x] ? 0 : 1;
+        draw();
+      }
+    });
+
+    playPauseBtn.addEventListener('click', toggleRunning);
+    stepBtn.addEventListener('click', () => {
+      if (!running) step();
+    });
+    randomizeBtn.addEventListener('click', randomize);
+    clearBtn.addEventListener('click', clearGrid);
+
+    speedInput.addEventListener('input', () => {
+      speedValue.textContent = speedInput.value;
+    });
+
+    densityInput.addEventListener('input', () => {
+      densityValue.textContent = densityInput.value;
+    });
+
+    draw();
+  </script>
 </body>
 </html>
